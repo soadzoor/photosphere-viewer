@@ -1,0 +1,72 @@
+* {
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: none;
+	line-height: 1;
+	text-decoration: none;
+	font-size: 1em;
+	font-style: normal;
+	font-weight: normal;
+	color: #cccccc;
+	box-sizing: border-box;
+	text-align: center;
+}
+
+html {
+	width: 100%;
+	height: 100%;
+	position: fixed;
+}
+
+body {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+
+.playGround {
+	flex: 1;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	flex-direction: column;
+	touch-action: none;
+	cursor: grab;
+}
+.playGround.rotating {
+	cursor: grabbing;
+}
+
+#uploadArea {
+	width: 400px;
+	max-width: calc(100% - 50px);
+	height: 250px;
+	max-height: calc(100% - 150px);
+	border: 3px dashed #cccccc;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	flex-direction: column;
+	cursor: pointer;
+}
+
+#uploadArea.active {
+	border-color: #3495F0;
+}
+
+.cloud {
+	width: 60px;
+	height: 41px;
+	background-image: url(../assets/images/cloud.svg);
+	background-repeat: no-repeat;
+	background-size: contain;
+	background-position: center center;
+	margin-top: 50px;
+}
+
+canvas {
+	touch-action: none;
+}
