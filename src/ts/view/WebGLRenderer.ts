@@ -5,6 +5,7 @@ export class WebGLRenderer
 {
 	private _canvas: HTMLCanvasElement;
 	private _gl: WebGLRenderingContext | WebGL2RenderingContext;
+	private _webGLVersion: 1 | 2 = 2;
 	private _shader: PhotoSphereShader;
 
 	private _sceneManager: SceneManager;
@@ -21,7 +22,24 @@ export class WebGLRenderer
 			alpha: false,
 			antialias: false // Not needed for this app! In fact, it causes major performance issues on lower-end devices, but visually it stays the same!
 		};
-		this._gl = (this._canvas.getContext("webgl2", contextAttributes) || this._canvas.getContext("experimental-webgl2", contextAttributes) || this._canvas.getContext("webgl", contextAttributes)) as WebGLRenderingContext;
+		
+		this._gl = (
+			this._canvas.getContext("webgl2", contextAttributes) ||
+			this._canvas.getContext("experimental-webgl2", contextAttributes)
+		) as WebGL2RenderingContext;
+
+		let isTextureLodExtensionAvailable: boolean = false;
+
+		if (!this._gl)
+		{
+			this._webGLVersion = 1;
+			this._gl = this._canvas.getContext("webgl", contextAttributes) as WebGLRenderingContext;
+
+			if (this._gl)
+			{
+				isTextureLodExtensionAvailable = !!this._gl.getExtension("EXT_shader_texture_lod");
+			}
+		}
 
 		if (this._gl)
 		{
@@ -36,7 +54,7 @@ export class WebGLRenderer
 			this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.DST_ALPHA);
 			this._gl.clear(this._gl.COLOR_BUFFER_BIT | this._gl.DEPTH_BUFFER_BIT);
 
-			this._shader = new PhotoSphereShader(this._gl);
+			this._shader = new PhotoSphereShader(this._gl, this._webGLVersion, isTextureLodExtensionAvailable);
 
 			this.initGeometry();
 			this._gl.useProgram(this._shader.program);
@@ -51,7 +69,12 @@ export class WebGLRenderer
 
 	public get maxTextureSize()
 	{
-		return this._gl?.getParameter(this._gl.MAX_TEXTURE_SIZE);
+		return this._gl?.getParameter(this._gl.MAX_TEXTURE_SIZE) || 1;
+	}
+
+	public get isWebGL2Supported()
+	{
+		return this._webGLVersion >= 2;
 	}
 
 	public setSize(width: number, height: number)

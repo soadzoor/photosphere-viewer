@@ -1,3 +1,4 @@
+import {MathUtils} from "utils/MathUtils";
 import {Shaders} from "./Shaders";
 
 export interface ITextureData
@@ -15,9 +16,17 @@ interface ITexture
 	viewBoxLoc: WebGLUniformLocation;
 }
 
+interface ISize
+{
+	width: number;
+	height: number;
+}
+
 export class PhotoSphereShader
 {
 	private _gl: WebGLRenderingContext | WebGL2RenderingContext;
+	private _glVersion: 1 | 2 = 1;
+	private _isTextureLodExtensionAvailable: boolean;
 	private _vertexShader: WebGLShader;
 	private _fragmentShader: WebGLShader;
 	private _program: WebGLProgram;
@@ -27,6 +36,39 @@ export class PhotoSphereShader
 		loc: WebGLUniformLocation
 	} = {
 		value: 1,
+		loc: null
+	};
+
+	// LOD
+	private _maxTextureLevel: {
+		value: number;
+		loc: WebGLUniformLocation;
+	} = {
+		value: 0,
+		loc: null
+	};
+
+	private _isBlurOn: {
+		value: boolean;
+		loc: WebGLUniformLocation;
+	} = {
+		value: false,
+		loc: null
+	};
+
+	private _isX360: {
+		value: boolean;
+		loc: WebGLUniformLocation;
+	} = {
+		value: false,
+		loc: null
+	};
+
+	private _isY180: {
+		value: boolean;
+		loc: WebGLUniformLocation;
+	} = {
+		value: false,
 		loc: null
 	};
 
@@ -49,14 +91,16 @@ export class PhotoSphereShader
 
 	private _isInitialTexture: boolean = true;
 
-	constructor(gl: WebGLRenderingContext | WebGL2RenderingContext)
+	constructor(gl: WebGLRenderingContext | WebGL2RenderingContext, glVersion: 1 | 2, isTextureLodExtensionAvailable: boolean)
 	{
 		this._gl = gl;
+		this._glVersion = glVersion;
+		this._isTextureLodExtensionAvailable = isTextureLodExtensionAvailable;
 		this._vertexShader = gl.createShader(gl.VERTEX_SHADER);
 		this._fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
 
-		gl.shaderSource(this._vertexShader, Shaders.vertexShader);
-		gl.shaderSource(this._fragmentShader, Shaders.fragmentShader);
+		gl.shaderSource(this._vertexShader, this.vertexShader);
+		gl.shaderSource(this._fragmentShader, this.fragmentShader);
 
 		try
 		{
@@ -68,10 +112,68 @@ export class PhotoSphereShader
 			this._forward.loc = this._gl.getUniformLocation(this._program, "fw");
 			this._texture.texLoc = this._gl.getUniformLocation(this._program, "texture");
 			this._texture.viewBoxLoc = this._gl.getUniformLocation(this._program, "textureViewBox");
+			this._maxTextureLevel.loc = this._gl.getUniformLocation(this._program, "maxTextureLevel");
+			this._isBlurOn.loc = this._gl.getUniformLocation(this._program, "isBlurOn");
+			this._isX360.loc = this._gl.getUniformLocation(this._program, "isX360");
+			this._isY180.loc = this._gl.getUniformLocation(this._program, "isY180");
 		}
 		catch (error)
 		{
 			console.error(error);
+		}
+	}
+
+	private get vertexShader()
+	{
+		let vertexShader = Shaders.vertexShader;
+
+		if (this.isWebGL2Supported)
+		{
+			vertexShader = `#version 300 es\n${vertexShader}`
+				.replace(/varying/g, "out")
+				.replace(/attribute/g, "in");
+		}
+
+		return vertexShader;
+	}
+
+	private get fragmentShader()
+	{
+		let fragmentShader = Shaders.fragmentShader;
+
+		if (this.isWebGL2Supported)
+		{
+			fragmentShader = `#version 300 es\n${fragmentShader}`
+				.replace(/varying/g, "in")
+				.replace(/texture2DLodEXT/g, "textureLod")
+				.replace(/texture2D/g, "texture")
+				.replace(/precision highp float;/, `precision highp float;\nout vec4 outputColor;`)
+				.replace(/gl_FragColor/g, "outputColor");
+		}
+
+		return fragmentShader;
+	}
+
+	private get isWebGL2Supported()
+	{
+		return this._glVersion >= 2;
+	}
+
+	// POT = Power of Two
+	private isTexturePOT(textureSize: ISize)
+	{
+		return MathUtils.isPowerOfTwo(textureSize.width) && MathUtils.isPowerOfTwo(textureSize.height);
+	}
+
+	private isBlurAvailable(textureSize: ISize)
+	{
+		if (this.isWebGL2Supported)
+		{
+			return true;
+		}
+		else
+		{
+			return this._isTextureLodExtensionAvailable && this.isTexturePOT(textureSize);
 		}
 	}
 
@@ -135,17 +237,33 @@ export class PhotoSphereShader
 
 		texture.viewBox = texData.viewBox;
 
+		this._maxTextureLevel.value = Math.log2(Math.max(texData.textureData.width, texData.textureData.height));
+
+		const isX360 = texture.viewBox[2] - texture.viewBox[0] === 1;
+		const isY180 = texture.viewBox[3] - texture.viewBox[1] === 1;
+
+		this._isX360.value = isX360;
+		this._isY180.value = isY180;
+
+		const isBlurNeeded = !(isX360 && isY180);
+		const isBlurOn = isBlurNeeded && this.isBlurAvailable(texData.textureData);
+		this._isBlurOn.value = isBlurOn;
+
 		const gl = this._gl;
 		gl.bindTexture(gl.TEXTURE_2D, texture.texValue);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, isBlurOn && isX360 ? gl.REPEAT : gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, isBlurOn ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texImage2D(
 			gl.TEXTURE_2D, 0, gl.RGB, gl.RGB,
 			gl.UNSIGNED_BYTE,
 			texData.textureData
 		);
+		if (isBlurOn)
+		{
+			gl.generateMipmap(gl.TEXTURE_2D);
+		}
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 
@@ -179,6 +297,11 @@ export class PhotoSphereShader
 		this._gl.uniform1f(location, value);
 	}
 
+	private setBoolUniform(location: WebGLUniformLocation, value: boolean)
+	{
+		this._gl.uniform1i(location, value ? 1 : 0);
+	}
+
 	private setTextureData(texture: {texLoc: WebGLUniformLocation, texValue: WebGLTexture}, sampler: number)
 	{
 		this._gl.activeTexture(this._gl.TEXTURE0 + sampler);
@@ -197,6 +320,10 @@ export class PhotoSphereShader
 		this.setFloatUniform(this._ratio.loc, this._ratio.value);
 		this.setVec3Uniform(this._forward.loc, this._forward.value);
 		this.setFloatUniform(this._zoomFactorLoc, userZoomFactor);
+		this.setFloatUniform(this._maxTextureLevel.loc, this._maxTextureLevel.value);
+		this.setBoolUniform(this._isBlurOn.loc, this._isBlurOn.value);
+		this.setBoolUniform(this._isX360.loc, this._isX360.value);
+		this.setBoolUniform(this._isY180.loc, this._isY180.value);
 		this.setTexture(this._texture, 0);
 	}
 

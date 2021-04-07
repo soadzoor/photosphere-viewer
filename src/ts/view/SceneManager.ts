@@ -139,6 +139,11 @@ export class SceneManager
 		return this._webGLRenderer.maxTextureSize;
 	}
 
+	public get isWebGL2Supported()
+	{
+		return this._webGLRenderer.isWebGL2Supported;
+	}
+
 	public get forward()
 	{
 		return this._forward;

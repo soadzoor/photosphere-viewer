@@ -46,6 +46,7 @@ export class ImageUtils
 		{
 			const src = message.data.url;
 			const maxTextureSize = message.data.maxTextureSize;
+			const isWebGL2Supported = message.data.isWebGL2Supported;
 			fetch(src).then((response) =>
 			{
 				response.blob().then((blob) =>
@@ -76,10 +77,32 @@ export class ImageUtils
 								newSize.width = newSize.height * ratio;
 							}
 
-							// Needed, because for some reason, typescript definitions don't have the optional "options" parameter for "createImageBitmap"
-							// https://github.com/microsoft/TypeScript/issues/35545
-							const cib = createImageBitmap as any;
-							cib(bitmap, 0, 0, bitmap.width, bitmap.height, {resizeWidth: newSize.width, resizeHeight: newSize.height}).then((resizedBitmap) =>
+							if (!isWebGL2Supported)
+							{
+								const isPowerOfTwo = (value: number) =>
+								{
+									return (value & (value - 1)) === 0 && value !== 0;
+								};
+
+								const ceilPowerOfTwo = (value: number) =>
+								{
+									return Math.pow(2, Math.ceil(Math.log(value) / Math.LN2));
+								};
+
+								if (isPowerOfTwo(Math.max(newSize.width, newSize.height)))
+								{
+									if (newSize.height < newSize.width)
+									{
+										newSize.height = ceilPowerOfTwo(newSize.height);
+									}
+									else if (newSize.width < newSize.height)
+									{
+										newSize.width = MathUtils.ceilPowerOfTwo(newSize.width);
+									}
+								}
+							}
+
+							createImageBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, {resizeWidth: newSize.width, resizeHeight: newSize.height}).then((resizedBitmap) =>
 							{
 								self.postMessage({
 									src: src,
@@ -105,7 +128,7 @@ export class ImageUtils
 		return new Worker(URL.createObjectURL(new Blob([`(${f})()`])));
 	}
 
-	private static getImage(url: string, maxTextureSize: number): Promise<TexImageSource>
+	private static getImage(url: string, maxTextureSize: number, isWebGL2Supported: boolean): Promise<TexImageSource>
 	{
 		if (typeof createImageBitmap !== "undefined")
 		{
@@ -124,7 +147,11 @@ export class ImageUtils
 					}
 				}
 				ImageUtils.worker.addEventListener("message", handler);
-				ImageUtils.worker.postMessage({url: url, maxTextureSize: maxTextureSize});
+				ImageUtils.worker.postMessage({
+					url: url,
+					maxTextureSize: maxTextureSize,
+					isWebGL2Supported: isWebGL2Supported
+				});
 			});
 		}
 		else
@@ -295,10 +322,10 @@ export class ImageUtils
 		});
 	}
 
-	public static async getImageForTexture(file: File, maxTextureSize: number)
+	public static async getImageForTexture(file: File, maxTextureSize: number, isWebGL2Supported: boolean)
 	{
 		const metadata = await ImageUtils.getMetaDataFromFile(file);
-		const textureData = await ImageUtils.getImage(metadata.imageUrl, maxTextureSize);
+		const textureData = await ImageUtils.getImage(metadata.imageUrl, maxTextureSize, isWebGL2Supported);
 
 		return {
 			textureData: textureData,

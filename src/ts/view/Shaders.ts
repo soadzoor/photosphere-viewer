@@ -5,7 +5,8 @@ export class Shaders
 {
 	public static get vertexShader()
 	{
-		return `precision highp float;
+		return (
+`precision highp float;
 
 attribute vec3 vertPosition;
 
@@ -26,12 +27,17 @@ void main()
 	vec3 corner = fw * ${MathUtils.getForwardLengthFromFOV(Constants.FOV)} + ratio*camRight*vertPosition.x + camUp*vertPosition.y;
 
 	vsRay = corner;
-}`
+}`);
 	};
 
 	public static get fragmentShader()
 	{
-		return `precision highp float;
+		return (
+`#ifdef GL_EXT_shader_texture_lod
+	#extension GL_EXT_shader_texture_lod : enable
+#endif
+
+precision highp float;
 
 #define PI 3.14159265359
 #define rayOrigin vec3(0.0, 0.0, 0.0)
@@ -39,8 +45,13 @@ void main()
 #define EPSILON 0.0001
 
 varying vec3 vsRay;
+varying vec3 movementDirection;
 
-uniform sampler2D texture;
+uniform sampler2D textureMap;
+uniform float maxTextureLevel;
+uniform bool isBlurOn;
+uniform bool isX360;
+uniform bool isY180;
 uniform vec4 textureViewBox;
 
 // Based on https://www.shadertoy.com/view/ldS3DW
@@ -56,28 +67,84 @@ float intersectSphere(vec3 ro, vec3 rd)
 	return t;
 }
 
-vec3 getColor(in sampler2D texture, in vec2 sphereUV, in vec4 textureViewBox)
+/**
+ * x should be between a and b.
+ * The result will be between 0 and 1, keeping the proper ratios of x to a and b
+ */
+float getInterpolation(in float a, in float b, in float x)
 {
-	if ((textureViewBox.x <= sphereUV.x && sphereUV.x <= textureViewBox.z) && (textureViewBox.y <= sphereUV.y && sphereUV.y <= textureViewBox.w))
+	return ((x - a) / (b - a));
+}
+
+vec3 getColor(in vec2 sphereUV, in vec4 textureViewBox)
+{
+	vec2 imageUV = vec2(
+		(sphereUV.x - textureViewBox.x) / (textureViewBox.z - textureViewBox.x),
+		(sphereUV.y - textureViewBox.y) / (textureViewBox.w - textureViewBox.y)
+	);
+
+	float mixMultiplier = 0.0;
+	float blurMultiplier = 0.0;
+	bool transitionNeeded = false;
+	float transitionSize = isBlurOn ? 0.01 : 0.001;
+
+	if (transitionSize < textureViewBox.y && textureViewBox.y + transitionSize > sphereUV.y)
 	{
-		vec2 imageUV = vec2(
-			(sphereUV.x - textureViewBox.x) / (textureViewBox.z - textureViewBox.x),
-			(sphereUV.y - textureViewBox.y) / (textureViewBox.w - textureViewBox.y)
+		transitionNeeded = true;
+		blurMultiplier = getInterpolation(textureViewBox.y + transitionSize, 0.0, sphereUV.y);
+		mixMultiplier = smoothstep(textureViewBox.y + transitionSize, textureViewBox.y, sphereUV.y);
+	}
+	else if (textureViewBox.w - transitionSize < sphereUV.y && textureViewBox.w < 1.0 - transitionSize)
+	{
+		transitionNeeded = true;
+		blurMultiplier = getInterpolation(textureViewBox.w - transitionSize, 1.0, sphereUV.y);
+		mixMultiplier = smoothstep(textureViewBox.w - transitionSize, textureViewBox.w, sphereUV.y);
+	}
+
+	if (transitionSize < textureViewBox.x && sphereUV.x < textureViewBox.x + transitionSize)
+	{
+		transitionNeeded = true;
+		blurMultiplier = max(blurMultiplier, getInterpolation(textureViewBox.x + transitionSize, 0.0, sphereUV.x));
+		mixMultiplier = max(mixMultiplier, smoothstep(textureViewBox.x + transitionSize, textureViewBox.x, sphereUV.x));
+	}
+	else if (textureViewBox.z - transitionSize < sphereUV.x && textureViewBox.z < 1.0 - transitionSize)
+	{
+		transitionNeeded = true;
+		blurMultiplier = max(blurMultiplier, getInterpolation(textureViewBox.z - transitionSize, 1.0, sphereUV.x));
+		mixMultiplier = max(mixMultiplier, smoothstep(textureViewBox.z - transitionSize, textureViewBox.z, sphereUV.x));
+	}
+
+	vec3 baseSample = texture2DLodEXT(textureMap, imageUV, 0.0).rgb;
+
+	if (isBlurOn && transitionNeeded)
+	{
+		if (transitionNeeded)
+		{
+			blurMultiplier = clamp((0.5 + sqrt(blurMultiplier)) / 1.5, 0.0, 1.0);
+		}
+
+		bool shouldFixVerticalSeam = !isX360 && isY180;
+
+		float medianLodLevel = blurMultiplier * max(1.0, (maxTextureLevel - (shouldFixVerticalSeam ? 0.0 : 0.5)));
+
+		return mix(
+			baseSample,
+			(
+				(shouldFixVerticalSeam ? vec3(0.0) : 
+				1.0 * texture2DLodEXT(textureMap, imageUV, medianLodLevel - 1.0).rgb) +
+				2.0 * texture2DLodEXT(textureMap, imageUV, medianLodLevel).rgb +
+				1.0 * texture2DLodEXT(textureMap, imageUV, medianLodLevel + 1.0).rgb
+			) / (4.0 - (shouldFixVerticalSeam ? 1.0 : 0.0)),
+			mixMultiplier
 		);
-
-		// Anti-aliasing trick for the edge of the image
-
-		float minX = abs(1.0 - (textureViewBox.z - textureViewBox.x)) < EPSILON ? 1.0 : min(abs(sphereUV.x - textureViewBox.x), abs(sphereUV.x - textureViewBox.z));
-		float minY = abs(1.0 - (textureViewBox.w - textureViewBox.y)) < EPSILON ? 1.0 : min(abs(sphereUV.y - textureViewBox.y), abs(sphereUV.y - textureViewBox.w));
-		float dist = min(minX, minY) * 2000.0;
-
-		float factor = clamp(dist, 0.0, 1.0);
-
-		return mix(SKY, texture2D(texture, imageUV).rgb, factor);
 	}
 	else
 	{
-		return SKY;
+		return mix(
+			baseSample,
+			SKY,
+			mixMultiplier
+		);
 	}
 }
 
@@ -94,9 +161,9 @@ void main()
 		0.5 - asin(hitPoint.y) / PI
 	);
 
-	vec3 color = getColor(texture, sphereUV, textureViewBox);
+	vec3 color = getColor(sphereUV, textureViewBox);
 
 	gl_FragColor = vec4(color, 1.0);
-}`;
+}`);
 	}
 }

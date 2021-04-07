@@ -18,7 +18,7 @@ export class Main
 		this._dropManager.destroy();
 
 		const sceneManager = new SceneManager();
-		const texData = await ImageUtils.getImageForTexture(file, sceneManager.maxTextureSize);
+		const texData = await ImageUtils.getImageForTexture(file, sceneManager.maxTextureSize, sceneManager.isWebGL2Supported);
 
 		sceneManager.loadPhotoSphere({
 			headingAngle: 0,
