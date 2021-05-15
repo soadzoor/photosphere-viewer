@@ -58,8 +58,78 @@ async function buildApp()
 
 	await Promise.all(promises);
 
+	if (isProduction)
+	{
+		console.log("\x1b[33m%s\x1b[0m", "Minifying shaders...");
+		await minifyShaders(buildFolder);
+	}
+
 	console.log("\x1b[32m%s\x1b[0m", "Build done!");
+
 	console.timeEnd("Build time");
+}
+
+async function minifyShaders(buildFolder)
+{
+	// Assumes we're using backticks (`) for shaders, and define "precision highp float" in the beginning
+	const bundleFile = bundleFilePath(buildFolder);
+	const bundleJs = await readTextFile(bundleFile);
+
+	let optimizedBundleJs = bundleJs;
+
+	let shaderStartIndex = 0;
+
+	const keyword = "precision highp float;";
+
+	shaderStartIndex = optimizedBundleJs.indexOf(keyword, shaderStartIndex);
+
+	while (shaderStartIndex > -1)
+	{
+		const shaderEndIndex = optimizedBundleJs.indexOf("`", shaderStartIndex);
+		const shader = optimizedBundleJs.substring(shaderStartIndex, shaderEndIndex);
+		const minifiedShader = minifyGlsl(shader);
+
+		optimizedBundleJs = `${optimizedBundleJs.substring(0, shaderStartIndex)}${minifiedShader}${optimizedBundleJs.substring(shaderEndIndex)}`;
+
+		++shaderStartIndex;
+		shaderStartIndex = optimizedBundleJs.indexOf(keyword, shaderStartIndex);
+	}
+
+	await writeTextFile(bundleFile, optimizedBundleJs);
+}
+
+function minifyGlsl(input)
+{
+	// remove all comments
+	// https://stackoverflow.com/questions/5989315/regex-for-match-replacing-javascript-comments-both-multiline-and-inline
+	let output = input
+		.replace(/(\/\*(?:(?!\*\/).|[\n\r])*\*\/)/g, "") // multiline comment
+		.replace(/(\/\/[^\n\r]*[\n\r]+)/g, ""); // single line comment
+
+	// replace defitionions with values throughout the whole glsl code
+	let indexOfDefine = output.indexOf("#define");
+	while (indexOfDefine > -1)
+	{
+		const endOfLineIndex = output.indexOf("\n", indexOfDefine);
+		const row = output.substring(indexOfDefine, endOfLineIndex);
+
+		// replace #define rows with empty string
+		output = `${output.substring(0, indexOfDefine)}${output.substring(endOfLineIndex)}`;
+
+		const definitions = row.split(" ");
+		const key = definitions[1];
+		const value = definitions.slice(2).join(" "); // value might contain spaces, like vec3(0.0, 0.5, 0.2)
+
+		const regExp = new RegExp(key, "gm");
+		output = output.replace(regExp, value);
+
+		indexOfDefine = output.indexOf("#define");
+	}
+
+	// Remove whitespaces
+	output = output.replace(/(\s)+/gm, " ").replace(/; /gm, ";");
+
+	return output;
 }
 
 function shx(command)
@@ -159,9 +229,14 @@ function css(buildFolder)
 	shx(`cp -R src/css ${buildFolder}/css`);
 }
 
+function bundleFilePath(buildFolder)
+{
+	return `${buildFolder}/js/app.bundle.js`;
+}
+
 function buildJs(buildFolder)
 {
-	const jsFile = `${buildFolder}/js/app.bundle.js`;
+	const jsFile = bundleFilePath(buildFolder);
 
 	const options = {
 		entryPoints: ["./src/ts/Main.ts"],

@@ -177,6 +177,20 @@ export class PhotoSphereShader
 		}
 	}
 
+	private addLineNumbers(shaderCode: string)
+	{
+		const lines = shaderCode.split("\n");
+
+		for (let i = 0; i < lines.length; i++)
+		{
+
+			lines[i] = `${(i + 1)}: ${lines[i]}`;
+
+		}
+
+		return lines.join("\n");
+	}
+
 	private compileShaders()
 	{
 		this.compileShader(this._vertexShader);
@@ -188,7 +202,8 @@ export class PhotoSphereShader
 		this._gl.compileShader(shader);
 		if (!this._gl.getShaderParameter(shader, this._gl.COMPILE_STATUS))
 		{
-			throw `Error compiling shader: ${this._gl.getShaderInfoLog(shader)}`;
+			const source = this._gl.getShaderSource(shader);
+			throw `Error compiling shader: ${this._gl.getShaderInfoLog(shader)}: ${this.addLineNumbers(source)}`;
 		}
 	}
 
