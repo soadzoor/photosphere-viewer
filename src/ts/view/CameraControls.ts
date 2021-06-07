@@ -33,8 +33,11 @@ export class CameraControls
 		prevDeltaTime: 1
 	};
 
+	private readonly _minV: number = 0.01;
+	private readonly _maxV: number = 3.14;
+
 	private _u: BoundedConvergence = new BoundedConvergence(0, 0, -Infinity, Infinity, undefined, Constants.DAMPING_DURATION);
-	private _v: BoundedConvergence = new BoundedConvergence(Math.PI / 2, Math.PI / 2, 0.01, 3.14, undefined, Constants.DAMPING_DURATION);
+	private _v: BoundedConvergence = new BoundedConvergence(Math.PI / 2, Math.PI / 2, this._minV, this._maxV, undefined, Constants.DAMPING_DURATION);
 	private _pinch: {
 		startValue: {
 			touchDistance: number;
@@ -377,8 +380,8 @@ export class CameraControls
 				// Change this if you want to prevent users from seeing the black bars
 				const isCalculatedFromTheFrustum = false;
 
-				const centerMin = viewBox[1] * Math.PI;
-				const centerMax = viewBox[3] * Math.PI;
+				const centerMin = Math.max(Math.PI - viewBox[3] * Math.PI, this._minV);
+				const centerMax = Math.min(Math.PI - viewBox[1] * Math.PI, this._maxV);
 
 				let frustumMin = centerMin;
 				let frustumMax = centerMax;

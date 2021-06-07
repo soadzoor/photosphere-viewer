@@ -79,8 +79,8 @@ float getInterpolation(in float a, in float b, in float x)
 vec3 getColor(in vec2 sphereUV, in vec4 textureViewBox)
 {
 	vec2 imageUV = vec2(
-		(sphereUV.x - textureViewBox.x) / (textureViewBox.z - textureViewBox.x),
-		(sphereUV.y - textureViewBox.y) / (textureViewBox.w - textureViewBox.y)
+		getInterpolation(textureViewBox.x, textureViewBox.z, sphereUV.x + (textureViewBox.z + textureViewBox.x) - 1.0),
+		getInterpolation(textureViewBox.y, textureViewBox.w, sphereUV.y + (textureViewBox.y + textureViewBox.w) - 1.0)
 	);
 
 	float mixMultiplier = 0.0;
@@ -88,30 +88,31 @@ vec3 getColor(in vec2 sphereUV, in vec4 textureViewBox)
 	bool transitionNeeded = false;
 	float transitionSize = isBlurOn ? 0.01 : 0.001;
 
-	if (transitionSize < textureViewBox.y && textureViewBox.y + transitionSize > sphereUV.y)
+	// Top
+	if (1.0 - transitionSize > textureViewBox.w && sphereUV.y < (1.0 - textureViewBox.w + transitionSize))
 	{
 		transitionNeeded = true;
-		blurMultiplier = getInterpolation(textureViewBox.y + transitionSize, 0.0, sphereUV.y);
-		mixMultiplier = smoothstep(textureViewBox.y + transitionSize, textureViewBox.y, sphereUV.y);
-	}
-	else if (textureViewBox.w - transitionSize < sphereUV.y && textureViewBox.w < 1.0 - transitionSize)
+		blurMultiplier = getInterpolation(1.0 - textureViewBox.w + transitionSize, 0.0, sphereUV.y);
+		mixMultiplier = smoothstep(1.0 - textureViewBox.w + transitionSize, 1.0 - textureViewBox.w, sphereUV.y);
+	} // Bottom
+	else if (transitionSize < textureViewBox.y && sphereUV.y > (1.0 - textureViewBox.y - transitionSize))
 	{
 		transitionNeeded = true;
-		blurMultiplier = getInterpolation(textureViewBox.w - transitionSize, 1.0, sphereUV.y);
-		mixMultiplier = smoothstep(textureViewBox.w - transitionSize, textureViewBox.w, sphereUV.y);
+		blurMultiplier = getInterpolation(1.0 - textureViewBox.y - transitionSize, 1.0, sphereUV.y);
+		mixMultiplier = smoothstep(1.0 - textureViewBox.y - transitionSize, 1.0 - textureViewBox.y, sphereUV.y);
 	}
 
-	if (transitionSize < textureViewBox.x && sphereUV.x < textureViewBox.x + transitionSize)
-	{
+	if (1.0 - transitionSize > textureViewBox.z && sphereUV.x < (1.0 - textureViewBox.z + transitionSize))
+	{ // Left
 		transitionNeeded = true;
-		blurMultiplier = max(blurMultiplier, getInterpolation(textureViewBox.x + transitionSize, 0.0, sphereUV.x));
-		mixMultiplier = max(mixMultiplier, smoothstep(textureViewBox.x + transitionSize, textureViewBox.x, sphereUV.x));
+		blurMultiplier = max(blurMultiplier, getInterpolation(1.0 - textureViewBox.z + transitionSize, 0.0, sphereUV.x));
+		mixMultiplier = max(mixMultiplier, smoothstep(1.0 - textureViewBox.z + transitionSize, 1.0 - textureViewBox.z, sphereUV.x));
 	}
-	else if (textureViewBox.z - transitionSize < sphereUV.x && textureViewBox.z < 1.0 - transitionSize)
-	{
+	else if (transitionSize < textureViewBox.x && sphereUV.x > (1.0 - textureViewBox.x - transitionSize))
+	{ // Right
 		transitionNeeded = true;
-		blurMultiplier = max(blurMultiplier, getInterpolation(textureViewBox.z - transitionSize, 1.0, sphereUV.x));
-		mixMultiplier = max(mixMultiplier, smoothstep(textureViewBox.z - transitionSize, textureViewBox.z, sphereUV.x));
+		blurMultiplier = max(blurMultiplier, getInterpolation(1.0 - textureViewBox.x - transitionSize, 1.0, sphereUV.x));
+		mixMultiplier = max(mixMultiplier, smoothstep(1.0 - textureViewBox.x - transitionSize, 1.0 - textureViewBox.x, sphereUV.x));
 	}
 
 	vec3 baseSample = texture2DLodEXT(textureMap, imageUV, 0.0).rgb;
